@@ -7,10 +7,18 @@ bodyParser = require('body-parser');
 let name_file='achaq';
 const PATH = __dirname+'/uploads';
 let time;
+const config = {
+    lang: "eng",
+    oem: 1,
+    psm: 3,
+}
 var uid = require('uid-safe');
-
+// const sharp = require('sharp');
+const gm = require('gm');
+const tesseract = require("node-tesseract-ocr");
 // Express settings
 const app = express();
+let words = '';
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({
@@ -23,11 +31,6 @@ const PDF2Pic = require("pdf2pic");
 
 
 let pdf2pic;
-
-function convert(s,n){
-
-    return "yes"
-}
 
 let storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -57,6 +60,39 @@ app.get('/image/:thispath/:thispage', function(req, res, next)
     });
 });
 
+app.post('/crop_pdf/:thispath/:thispage', function(req, res, next){
+
+    fs.readdir('./images/'+req.params.thispath +'/', function (err, files) {
+        if (err) {
+            return console.log('Unable to scan directory: ' + err);
+        }
+        files.forEach(function (file) {
+            console.log(file);
+            gm('./images/'+req.params.thispath +'/'+file).crop(req.body.W , req.body.H , req.body.X , req.body.Y)
+            .write('./images/'+req.params.thispath + '/cropped' +file,(err) => {
+                if (err) {
+                    console.log(err);
+                } else {
+                    tesseract.recognize('./images/'+req.params.thispath + '/cropped'+file, config)
+                        .then(text => {
+                            console.log(text)
+                            words += text.s + ' ';
+                        })
+                        .catch(error => {
+                            console.log(error.message)
+                        })
+                }
+                });
+        });
+        console.log(words);
+        console.log('done!!!!')
+
+    });
+    return res.send({
+        'success': true
+        }
+    )
+});
 
 
 
