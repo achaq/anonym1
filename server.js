@@ -1,9 +1,12 @@
-const fs = require('fs')
+const fs = require('fs');
 const express = require('express'),
 path = require('path'),
 cors = require('cors'),
 multer = require('multer'),
 bodyParser = require('body-parser');
+const async = require('async');
+let {PythonShell} = require('python-shell')
+
 let name_file='achaq';
 const PATH = __dirname+'/uploads';
 let time;
@@ -11,10 +14,15 @@ const config = {
     lang: "eng",
     oem: 1,
     psm: 3,
+
 }
+'use strict';
+var Promise = require('bluebird');
+
 var uid = require('uid-safe');
 // const sharp = require('sharp');
-const gm = require('gm');
+const gm = require('gm').subClass({imageMagick: true});;
+Promise.promisifyAll(gm.prototype);
 const tesseract = require("node-tesseract-ocr");
 // Express settings
 const app = express();
@@ -28,6 +36,7 @@ app.use(bodyParser.urlencoded({
 
 
 const PDF2Pic = require("pdf2pic");
+const {sync} = require("uid-safe");
 
 
 let pdf2pic;
@@ -60,38 +69,134 @@ app.get('/image/:thispath/:thispage', function(req, res, next)
     });
 });
 
-app.post('/crop_pdf/:thispath/:thispage', function(req, res, next){
+app.get('/anonym/:thispath/', function(req, res, next)
+{
+    var strUid = uid.sync(18);
+    console.log(req.params.thispath);
+    console.log('we are her');
+    fs.readFile("./uploads/doc-"+req.params.thispath+"_anonym.pdf", function(err, data) {
+        // fs.readFile("/home/achaq/Leyton/Nodejs/anonym1/images/image_4.png", function(err, data) {
+        if (err) console.log(err); // Fail if the file can't be read.
+        res.writeHead(200, {'Content-Type': 'application/pdf'});
+        res.end(data); // Send the file data to the browser.
+    });
+});
 
-    fs.readdir('./images/'+req.params.thispath +'/', function (err, files) {
+
+const {promisify} = require('util')
+
+async function filefunction(files, req) {
+    const W = req.body.W ,
+        H = req.body.H ,
+        X = req.body.X ,
+        Y = req.body.Y,
+        thispath = req.params.thispath;
+
+    for (let file of files) {
+        console.log(file);
+
+        // gm('./images/'+thispath +'/'+file).crop(W , H , X , Y)
+        //     .write('./images/'+thispath + '/cropped' +file, (err) => {
+        //         if (err) {
+        //             console.log(err);
+        //         } else {
+        //             tesseract.recognize('./images/'+ thispath + '/cropped'+file, config)
+        //                 .then(text => {
+        //                     words = words + ' '+ text
+        //                     // console.log(words)
+        //                     console.log('inside the foreach ')
+        //
+        //                 })
+        //                 .catch(error => {
+        //                     console.log(error.message)
+        //                 })
+        //         }
+        //     });
+        const imageRead = gm('./images/'+thispath +'/'+file)
+        const imageCropped = imageRead.crop(W , H , X , Y)
+        const writePromise = promisify(imageCropped.write)
+        try {
+            await writePromise.call(imageCropped, './images/'+thispath + '/cropped' +file);
+            tesseract.recognize('./images/'+ thispath + '/cropped'+file, config)
+                .then(text => {
+                    words = words + text;
+                    // console.log(words)
+                    console.log('inside the foreach ')
+
+                })
+                .catch(error => {
+                    console.log(error.message)
+                })
+        } catch (e) {
+            console.log(e)
+        }
+        // console.log(gm_temp)
+    }
+    console.log('out of the froeach')
+    // console.log('words ' + words);
+    return words;
+}
+
+app.post('/crop_pdf/:thispath/:thispage/:numcrops', function(req, res, next){
+
+    console.log('before reading tje file ')
+    fs.readdir('./images/'+req.params.thispath +'/',  async function(err, files) {
         if (err) {
             return console.log('Unable to scan directory: ' + err);
         }
-        files.forEach(function (file) {
-            console.log(file);
-            gm('./images/'+req.params.thispath +'/'+file).crop(req.body.W , req.body.H , req.body.X , req.body.Y)
-            .write('./images/'+req.params.thispath + '/cropped' +file,(err) => {
-                if (err) {
-                    console.log(err);
-                } else {
-                    tesseract.recognize('./images/'+req.params.thispath + '/cropped'+file, config)
-                        .then(text => {
-                            console.log(text)
-                            words += text.s + ' ';
-                        })
-                        .catch(error => {
-                            console.log(error.message)
-                        })
-                }
-                });
-        });
-        console.log(words);
-        console.log('done!!!!')
 
-    });
-    return res.send({
-        'success': true
-        }
-    )
+        words = await filefunction(files , req);
+
+            console.log('normally after calling the crop foreach ')
+            console.log('+++++++++++++++++++++++++++++++++++++words : ' + words);
+            words = words.replace('\f','?')
+        console.log('+++++++++++++++++++++++++++++++++++++words : ' + words);
+        words = words.replace('\n','+')
+        console.log('+++++++++++++++++++++++++++++++++++++words : ' + words);
+        let NumberOfCrops = req.params.numcrops;
+        let options = {
+                mode: 'text',
+                pythonOptions: ['-u'],
+                scriptPath: './',
+                args: [req.params.thispath,
+                        NumberOfCrops,
+                    words
+                    ]
+            };
+            console.log('normally after the options')
+            PythonShell.run('pythonscript.py', options, function (err, results) {
+                if (err) throw err;
+                // results is an array consisting of messages collected during execution
+                console.log('results: %j', results);
+            });
+
+
+            return res.send({
+                    'success': true,
+                'data': 'good'
+                }
+            )
+        // let json = JSON.stringify(words);
+            // console.log('we are in the json file : ',words,' json : ',json);
+
+            // fs.writeFile('words.json',json,'utf8',function (err) {
+            //     console.log('we are in the callbaack function of creating the json file ');
+            //     if(err){
+            //         console.log('this is wrong');
+            //     }
+            //     else {
+            //         console.log('we are in the no error part of creating the json file ');
+            //         const spawn = require("child_process").spawn;
+            //         console.log('end is near ')
+            //
+            //     }
+            // });
+        });
+
+
+
+    // });
+
 });
 
 

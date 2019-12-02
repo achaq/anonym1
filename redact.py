@@ -1,58 +1,64 @@
-#;encoding=utf-8
+# ;encoding=utf-8
 # Example file to redact Social Security Numbers from the
 # text layer of a PDF and to demonstrate metadata filtering.
 
 import re
+import sys
 from datetime import datetime
+
+from pdfrw import PdfReader, PdfWriter
 
 import pdf_redactor
 
-## Set options.
+
+
+# print("dataToSendBack"+str(sys.argv[1]))
+# sys.stdout.flush()
+
+def redactor(options):
+    # This is the function that performs redaction.
+    print("taking the input ")
+    if options.input_stream is None:
+        options.input_stream = "/home/achaq/Leyton/Untitled_Message/36.pdf"  # input stream containing the PDF to redact
+    if options.output_stream is None:
+        options.output_stream = "/home/achaq/Leyton/Untitled_Message/36_redacted.pdf"  # output stream to write the new, redacted PDF to
+
+    document = PdfReader(options.input_stream)
+    if options.content_filters:
+        # Build up the complete text stream of the PDF content.
+        text_layer = pdf_redactor.build_text_layer(document, options)
+
+        # Apply filters to the text stream.
+        pdf_redactor.update_text_layer(options, *text_layer)
+
+        # Replace page content streams with updated tokens.
+        pdf_redactor.apply_updated_text(document, *text_layer)
+
+    # Update annotations.
+    pdf_redactor.update_annotations(document, options)
+#     print("after updating the annotation ")
+    # Write the PDF back out.
+    writer = PdfWriter()
+    writer.trailer = document
+    writer.write(options.output_stream)
+#     print("back out ")
+
+
+#
+#
+wordsToSearch = ['coût:00147225V']
+fruit_list = ['F301', 'GRUPO', '00001', 'coût:00147225V', 'L\'ORGE', 'EQUIPE', 'DV2']
 
 options = pdf_redactor.RedactorOptions()
-
-options.metadata_filters = {
-	# Perform some field filtering --- turn the Title into uppercase.
-	"Title": [lambda value : value.upper()],
-
-	# Set some values, overriding any value present in the PDF.
-	"Producer": [lambda value : "My Name"],
-	"CreationDate": [lambda value : datetime.utcnow()],
-
-	# Clear all other fields.
-	"DEFAULT": [lambda value : None],
-}
-
-# Clear any XMP metadata, if present.
-options.xmp_filters = [lambda xml : None]
-
-# Redact things that look like social security numbers, replacing the
-# text with X's.
-options.content_filters = [
-	# First convert all dash-like characters to dashes.
-	(
-		re.compile(u"[−–—~‐]"),
-		lambda m : "-"
-	),
-
-	# Then do an actual SSL regex.
-	# See https://github.com/opendata/SSN-Redaction for why this regex is complicated.
-	(
-		re.compile(r"(?<!\d)(?!666|000|9\d{2})([OoIli0-9]{3})([\s-]?)(?!00)([OoIli0-9]{2})\2(?!0{4})([OoIli0-9]{4})(?!\d)"),
-		lambda m : "XXX-XX-XXXX"
-	),
-
-	# Content filter that runs on the text comment annotation body.
-	(
-		re.compile(r"comment!"),
-		lambda m : "annotation?"
-	),
+options.content_filters = [(
+    re.compile(u"[−–—~‐]"),
+    lambda m: "-"
+),
+    (re.compile('|'.join(fruit_list)),
+     lambda m: "           "),
 ]
 
-# Filter the link target URI.
-options.link_filters = [
-	lambda href, annotation : "https://www.google.com"
-]
 
-# Perform the redaction using PDF on standard input and writing to standard output.
-pdf_redactor.redactor(options)
+redactor(options)
+print(str(sys.argv[3]))
+sys.stdout.flush()
